@@ -1,5 +1,3 @@
-]]
-
 if not getgenv then getgenv = function() return _G end end
 
 local function missing(name, replacement)
