@@ -1,0 +1,2261 @@
+]]
+
+if not getgenv then getgenv = function() return _G end end
+
+local function missing(name, replacement)
+    local env = getgenv()
+    if env[name] ~= nil then return env[name] end
+    if replacement ~= nil then env[name] = replacement return replacement end
+    return nil
+end
+
+local cloneref = missing("cloneref", function(obj)
+    if obj:IsA("Service") then return game:GetService(obj.Name) end
+    return obj
+end)
+
+local writefile = missing("writefile", function(file, data, safe)
+    if safe then return pcall(writefile, file, data) end
+    writefile(file, data)
+end)
+local readfile = missing("readfile", function(file, safe)
+    if safe then return pcall(readfile, file) end
+    return readfile(file)
+end)
+local isfile = missing("isfile", function(file)
+    local s, r = pcall(readfile, file)
+    return s and r ~= nil and r ~= ""
+end)
+local makefolder = missing("makefolder", function() end)
+local isfolder = missing("isfolder", function() return false end)
+
+getgenv().B3tterDex_Services = setmetatable({}, {
+    __index = function(self, name)
+        local s, c = pcall(function() return cloneref(game:GetService(name)) end)
+        if s then rawset(self, name, c) return c end
+        error("Invalid Service: " .. tostring(name))
+    end
+})
+
+local Services = getgenv().B3tterDex_Services
+local Players = Services.Players
+local Workspace = Services.Workspace
+local ReplicatedStorage = Services.ReplicatedStorage
+local RunService = Services.RunService
+local UserInputService = Services.UserInputService
+local Stats = Services.Stats
+local GuiService = Services.GuiService
+local Camera = Workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local PlayerModule = require(LocalPlayer.PlayerScripts:WaitForChild("PlayerModule"))
+local Control = PlayerModule:GetControls()
+local KnifeKill = cloneref(
+    game:GetService("ReplicatedStorage")
+        .Packages
+        .Networking["RE/Combat/KnifeKill"]
+)
+
+local function changePos(coord)
+    if math.abs(coord) > 1e7 then return coord > 0 and 1e6 or -1e6 end
+    return coord
+end
+
+local FAR = CFrame.new(1e6 + math.random()*1000, 1e6 + math.random()*1000, 1e6 + math.random()*1000)
+task.spawn(function()
+    while true do
+        task.wait(0.3)
+        local mode = math.random(1, 3)
+        local x, y, z
+        if mode == 1 then
+            x = 1e6 + math.random() * 1000
+            y = 1e6 + math.random() * 1000
+            z = 1e6 + math.random() * 1000
+        elseif mode == 2 then
+            x = (math.random() * 200000) - 100000
+            y = (math.random() * 200000) - 100000
+            z = (math.random() * 200000) - 100000
+        else
+            x = (math.random() * 1000000) - 500000
+            y = (math.random() * 1000000) - 500000
+            z = (math.random() * 1000000) - 500000
+        end
+        x, y, z = changePos(x), changePos(y), changePos(z)
+        FAR = CFrame.new(x, y, z)
+    end
+end)
+
+local link = "https://discord.gg/e5EGnteek5"
+local function copy(txt)
+    local cb = setclipboard or toclipboard or set_clipboard or (Clipboard and Clipboard.set)
+    if cb then cb(txt) return true end
+    return false
+end
+copy(link)
+
+local function getAbsoluteDevice()
+    local info = {Device = "Desktop", IsEmulator = false}
+    if GuiService:IsTenFootInterface() then info.Device = "Console" return info end
+    if UserInputService.TouchEnabled then
+        local vp = Camera.ViewportSize
+        info.Device = (vp.X > 1000 or vp.Y > 600) and "Tablet" or "Phone"
+        if not UserInputService.AccelerometerEnabled then info.IsEmulator = true end
+        if UserInputService.KeyboardEnabled and UserInputService.MouseEnabled then info.IsEmulator = true end
+        return info
+    end
+    return info
+end
+
+local DeviceInfo = getAbsoluteDevice()
+local IsTouchDevice = (DeviceInfo.Device == "Phone" or DeviceInfo.Device == "Tablet")
+
+local AutoSaveFolder = "B3tterDex/Rayfield/CustomAutoSave"
+local AutoSaveFile = AutoSaveFolder .. "/my_settings.txt"
+
+local function LoadAutoSave()
+    if not isfolder(AutoSaveFolder) then makefolder(AutoSaveFolder) end
+    if isfile(AutoSaveFile) then
+        local content = readfile(AutoSaveFile)
+        if content then
+            local sp, ep = string.find(content, "{"), string.find(content, "}")
+            if sp and ep then
+                local ds = string.sub(content, sp+1, ep-1)
+                local parts = {}
+                for part in string.gmatch(ds, "[^,]+") do
+                    local k, v = string.match(part, "([^=]+)=(.+)")
+                    if k and v then parts[k] = v end
+                end
+                return parts
+            end
+        end
+    end
+    return {}
+end
+
+local function SaveAutoSave(settings)
+    if not isfolder(AutoSaveFolder) then makefolder(AutoSaveFolder) end
+    local parts = {}
+    for k, v in pairs(settings) do table.insert(parts, k .. "=" .. tostring(v)) end
+    writefile(AutoSaveFile, "SavingVar = {" .. table.concat(parts, ",") .. "}")
+end
+
+local SavedSettings = LoadAutoSave()
+
+local function GetSetting(name, default)
+    local val = SavedSettings[name]
+    if val == nil then return default end
+    if val == "true" then return true
+    elseif val == "false" then return false
+    else local num = tonumber(val) return num or val end
+end
+
+local function UpdateSetting(name, value)
+    SavedSettings[name] = tostring(value)
+    pcall(SaveAutoSave, SavedSettings)
+end
+
+local wordsToConvert = {
+    English = {
+        WindowName = "Fer (Inspired In ! DanDev's DAN)",
+        LoadingTitle = "ferDex",
+        LoadingSubtitle = "By @fer! & @carlos",
+        ShowText = "fer",
+        AimAssistTab = "Aim Assist",
+        SettingsLabel = "This part its for Settings",
+        AimDistance = "Aim Distance",
+        AllowShooting = "Allow Shooting Where You Dont Looking",
+        AutoEquipGun = "Auto Equip (Gun)",
+        AutoUnEquipGun = "Auto UnEquip (Gun)",
+        MaxRaycast = "Max Raycasting/Checking if target outside",
+        NotifyShoot = "Notify Where Script Shooted",
+        AutoShoot = "Auto Shoot",
+        Shoot2Die = "Shoot 2 Die",
+        Shoot2DieToClick2Die = "Shoot 2 Die to Click 2 Die",
+        AllowSliding = "Allow Sliding Kill",
+        KeybindsLabel = "Keybinds",
+        EnableAutoShootKey = "Enable Auto Shoot (key)",
+        DisableAutoShootKey = "Disable Auto Shoot (key)",
+        EnableAutoKnifeKey = "Enable Auto Knife (key)",
+        DisableAutoKnifeKey = "Disable Auto Knife (key)",
+        KnifeThrowLabel = "Knife Throwing",
+        KnifeThrowSpeed = "Knife Throw Speed",
+        KnifeDetectionDist = "Knife Detection Distance",
+        AutoEquipKnife = "Auto Equip (Knife)",
+        AutoUnequipKnife = "Auto Unequip (Knife)",
+        AutoKnifeThrow = "Auto Knife Throw",
+        EspTab = "ESP",
+        EnemyEspLabel = "ESP Enemy Team",
+        EnableEsp = "Enable ESP",
+        TeamMatesEspLabel = "ESP TeamMates",
+        EnableTeamMatesEsp = "Enable TeamMates ESP",
+        KillTab = "Kill",
+        TargetingLabel = "Targeting things",
+        SelectTargets = "Select Targets",
+        SpamKillTarget = "Spam Killing Target",
+        KillAllOnce = "Kill All Only One Time",
+        RealKillingLabel = "REAL killing",
+        KillSpamAll = "Kill Spamming (ALL ENEMYS)",
+        KillAllWithGun = "Kill All With Gun",
+        KillSpamGunAll = "Kill Spamming With Gun (ALL ENEMYS)",
+        InventoryTab = "Inventory",
+        CloakLabel = "Invisibility Cloak",
+        CloakAccel = "Acceleration of Cloak",
+        CloakSpeed = "Speed of cloak",
+        GiveCloak = "Give Cloak",
+        RemoveCloak = "Remove Cloak tool",
+        AutoCloak = "Auto Give Cloak In Respawn",
+        FakeLagLabel = "Fakelag",
+        FakeLagDesc = "Fake Lag. What makes? Simple, freezes your avatar in a animation id you were in and creates a new one for fake lagging",
+        GiveFakeLag = "Give Fake Lag",
+        RemoveFakeLag = "Remove FakeLag tool",
+        AutoFakeLag = "Auto Give Fake Lag In Respawn",
+        IdiomaTab = "Idioma/Idiom",
+        LanguageTo = "Language to?",
+        SetIdiom = "Set to idiom (ReExecutes and sets idiom)",
+        OpenButtonTab = "OpenButton",
+        HideOpenLabel = "Hide OpenButton (By FastDex ty)",
+        HideBtn = "Hide OpenButton",
+        ShowBtn = "Show OpenButton",
+        KeybindNotifyEnabled = "Auto Shoot ENABLED",
+        KeybindNotifyDisabled = "Auto Shoot DISABLED",
+        KeybindKnifeEnabled = "Auto Knife Throw ENABLED",
+        KeybindKnifeDisabled = "Auto Knife Throw DISABLED",
+        ShootingNotify = "Shooting!",
+        ShootPosContent = "Pos Where Shooted: ",
+        Click2DieTitle = "Click 2 Die",
+        Click2DieContent = "Killed %s !",
+        Shoot2DieTitle = "Shoot 2 Die",
+        Shoot2DieContent = "%s eliminated!",
+        SwipeNotifyTitle = "Shoot 2 Die",
+        SwipeNotifyContent = "Swiped kill on %s!",
+        TouchDeviceTitle = "Touch Device Detected",
+        TouchDeviceContent = "Keybinds will not work because your device has no keyboard.",
+        RayfieldError = "Rayfield UI not found.",
+        CloakRemoved = "Cloak tool removed.",
+        NoCloakFound = "No cloak tool found.",
+        FakeLagRemoved = "Fake Lag tool removed.",
+        NoFakeLagFound = "No fake lag tool found.",
+        AlreadyHaveCloak = "You already have a cloak tool!",
+        AlreadyHaveFakeLag = "You already have a fake lag tool!"
+    },
+    Spanish = {
+        WindowName = "B3tterDex (Inspirado en ! danDev's dan)",
+        LoadingTitle = "dan",
+        LoadingSubtitle = "Por @fer! & @carlos",
+        ShowText = "dan",
+        AimAssistTab = "Asistencia de puntería",
+        SettingsLabel = "Esta parte es para los ajustes",
+        AimDistance = "Distancia de apuntado",
+        AllowShooting = "Permitir disparar sin mirar",
+        AutoEquipGun = "Auto equipar (Arma)",
+        AutoUnEquipGun = "Auto desequipar (Arma)",
+        MaxRaycast = "Máx. raycasts/verificación de objetivo",
+        NotifyShoot = "Notificar dónde disparó el script",
+        AutoShoot = "Disparo automático",
+        Shoot2Die = "Disparar para matar",
+        Shoot2DieToClick2Die = "Disparo mortal a clic mortal",
+        AllowSliding = "Permitir matar deslizando",
+        KeybindsLabel = "Atajos de teclado",
+        EnableAutoShootKey = "Activar auto disparo (tecla)",
+        DisableAutoShootKey = "Desactivar auto disparo (tecla)",
+        EnableAutoKnifeKey = "Activar auto cuchillo (tecla)",
+        DisableAutoKnifeKey = "Desactivar auto cuchillo (tecla)",
+        KnifeThrowLabel = "Lanzamiento de cuchillo",
+        KnifeThrowSpeed = "Velocidad de lanzamiento",
+        KnifeDetectionDist = "Distancia de detección",
+        AutoEquipKnife = "Auto equipar (Cuchillo)",
+        AutoUnequipKnife = "Auto desequipar (Cuchillo)",
+        AutoKnifeThrow = "Auto lanzar cuchillo",
+        EspTab = "ESP",
+        EnemyEspLabel = "ESP Equipo enemigo",
+        EnableEsp = "Activar ESP",
+        TeamMatesEspLabel = "ESP Compañeros",
+        EnableTeamMatesEsp = "Activar ESP de compañeros",
+        KillTab = "Matar",
+        TargetingLabel = "Opciones de objetivo",
+        SelectTargets = "Seleccionar objetivos",
+        SpamKillTarget = "Matar objetivo repetidamente",
+        KillAllOnce = "Matar a todos una vez",
+        RealKillingLabel = "Matanza real",
+        KillSpamAll = "Matar repetidamente (TODOS)",
+        KillAllWithGun = "Matar a todos con arma",
+        KillSpamGunAll = "Matar repetidamente con arma (TODOS)",
+        InventoryTab = "Inventario",
+        CloakLabel = "Capa de invisibilidad",
+        CloakAccel = "Aceleración de la capa",
+        CloakSpeed = "Velocidad de la capa",
+        GiveCloak = "Dar capa",
+        RemoveCloak = "Quitar capa",
+        AutoCloak = "Auto dar capa al reaparecer",
+        FakeLagLabel = "Fake Lag",
+        FakeLagDesc = "Fake Lag. Congela tu personaje en una animación y crea uno nuevo para simular lag.",
+        GiveFakeLag = "Dar Fake Lag",
+        RemoveFakeLag = "Quitar FakeLag",
+        AutoFakeLag = "Auto dar Fake Lag al reaparecer",
+        IdiomaTab = "Idioma/Idiom",
+        LanguageTo = "Idioma a usar?",
+        SetIdiom = "Establecer idioma (Reinicia el script)",
+        OpenButtonTab = "Botón abrir",
+        HideOpenLabel = "Ocultar botón abrir (By FastDex ty)",
+        HideBtn = "Ocultar botón",
+        ShowBtn = "Mostrar botón",
+        KeybindNotifyEnabled = "Auto disparo ACTIVADO",
+        KeybindNotifyDisabled = "Auto disparo DESACTIVADO",
+        KeybindKnifeEnabled = "Auto lanzamiento de cuchillo ACTIVADO",
+        KeybindKnifeDisabled = "Auto lanzamiento de cuchillo DESACTIVADO",
+        ShootingNotify = "¡Disparando!",
+        ShootPosContent = "Posición disparada: ",
+        Click2DieTitle = "Clic para morir",
+        Click2DieContent = "¡Mataste a %s!",
+        Shoot2DieTitle = "Disparo mortal",
+        Shoot2DieContent = "¡%s eliminado!",
+        SwipeNotifyTitle = "Disparo mortal",
+        SwipeNotifyContent = "¡Mataste deslizando a %s!",
+        TouchDeviceTitle = "Dispositivo táctil detectado",
+        TouchDeviceContent = "Los atajos de teclado no funcionarán porque tu dispositivo no tiene teclado.",
+        RayfieldError = "Interfaz Rayfield no encontrada.",
+        CloakRemoved = "Capa eliminada.",
+        NoCloakFound = "No se encontró la capa.",
+        FakeLagRemoved = "Fake Lag eliminado.",
+        NoFakeLagFound = "No se encontró Fake Lag.",
+        AlreadyHaveCloak = "¡Ya tienes una capa!",
+        AlreadyHaveFakeLag = "¡Ya tienes un Fake Lag!"
+    },
+    German = {
+        WindowName = "danhub (Inspiriert von ! danDev's fer)",
+        LoadingTitle = "danhub",
+        LoadingSubtitle = "Von @fer! & @carlos",
+        ShowText = "Danhub",
+        AimAssistTab = "Zielhilfe",
+        SettingsLabel = "Dieser Teil ist für Einstellungen",
+        AimDistance = "Zieldistanz",
+        AllowShooting = "Schießen ohne hinzusehen erlauben",
+        AutoEquipGun = "Auto-Ausrüstung (Waffe)",
+        AutoUnEquipGun = "Auto-Ablegen (Waffe)",
+        MaxRaycast = "Max. Raycasts/Zielprüfung",
+        NotifyShoot = "Benachrichtigung bei Schuss",
+        AutoShoot = "Auto-Schuss",
+        Shoot2Die = "Schießen zum Töten",
+        Shoot2DieToClick2Die = "Schießen zum Töten zu Klicken zum Töten",
+        AllowSliding = "Swipe-Töten erlauben",
+        KeybindsLabel = "Tastenkombinationen",
+        EnableAutoShootKey = "Auto-Schuss aktivieren (Taste)",
+        DisableAutoShootKey = "Auto-Schuss deaktivieren (Taste)",
+        EnableAutoKnifeKey = "Auto-Messer aktivieren (Taste)",
+        DisableAutoKnifeKey = "Auto-Messer deaktivieren (Taste)",
+        KnifeThrowLabel = "Messerwurf",
+        KnifeThrowSpeed = "Wurfgeschwindigkeit",
+        KnifeDetectionDist = "Erkennungsdistanz",
+        AutoEquipKnife = "Auto-Ausrüstung (Messer)",
+        AutoUnequipKnife = "Auto-Ablegen (Messer)",
+        AutoKnifeThrow = "Auto-Messerwurf",
+        EspTab = "ESP",
+        EnemyEspLabel = "ESP Gegnerteam",
+        EnableEsp = "ESP aktivieren",
+        TeamMatesEspLabel = "ESP Teamkameraden",
+        EnableTeamMatesEsp = "Teamkameraden-ESP aktivieren",
+        KillTab = "Töten",
+        TargetingLabel = "Zieleinstellungen",
+        SelectTargets = "Ziele auswählen",
+        SpamKillTarget = "Ziel wiederholt töten",
+        KillAllOnce = "Alle einmal töten",
+        RealKillingLabel = "ECHtes Töten",
+        KillSpamAll = "Alle wiederholt töten (ALLE)",
+        KillAllWithGun = "Alle mit Waffe töten",
+        KillSpamGunAll = "Alle wiederholt mit Waffe töten (ALLE)",
+        InventoryTab = "Inventar",
+        CloakLabel = "Unsichtbarkeitsumhang",
+        CloakAccel = "Beschleunigung des Umhangs",
+        CloakSpeed = "Geschwindigkeit des Umhangs",
+        GiveCloak = "Umhang geben",
+        RemoveCloak = "Umhang entfernen",
+        AutoCloak = "Auto-Umhang bei Wiederbelebung",
+        FakeLagLabel = "Fake Lag",
+        FakeLagDesc = "Fake Lag. Friert deinen Avatar in einer Animation ein und erstellt einen neuen für vorgetäuschtes Lag.",
+        GiveFakeLag = "Fake Lag geben",
+        RemoveFakeLag = "FakeLag entfernen",
+        AutoFakeLag = "Auto-Fake Lag bei Wiederbelebung",
+        IdiomaTab = "Sprache/Idiom",
+        LanguageTo = "Sprache wählen?",
+        SetIdiom = "Sprache einstellen (Startet das Skript neu)",
+        OpenButtonTab = "Öffnen-Taste",
+        HideOpenLabel = "Öffnen-Taste verstecken (Von FastDex ty)",
+        HideBtn = "Taste verstecken",
+        ShowBtn = "Taste anzeigen",
+        KeybindNotifyEnabled = "Auto-Schuss AKTIVIERT",
+        KeybindNotifyDisabled = "Auto-Schuss DEAKTIVIERT",
+        KeybindKnifeEnabled = "Auto-Messerwurf AKTIVIERT",
+        KeybindKnifeDisabled = "Auto-Messerwurf DEAKTIVIERT",
+        ShootingNotify = "Schießen!",
+        ShootPosContent = "Schussposition: ",
+        Click2DieTitle = "Klick zum Töten",
+        Click2DieContent = "%s getötet!",
+        Shoot2DieTitle = "Schießen zum Töten",
+        Shoot2DieContent = "%s eliminiert!",
+        SwipeNotifyTitle = "Schießen zum Töten",
+        SwipeNotifyContent = "Wisch-Tötung bei %s!",
+        TouchDeviceTitle = "Touch-Gerät erkannt",
+        TouchDeviceContent = "Tastenkombinationen funktionieren nicht, da dein Gerät keine Tastatur hat.",
+        RayfieldError = "Rayfield-Benutzeroberfläche nicht gefunden.",
+        CloakRemoved = "Umhang entfernt.",
+        NoCloakFound = "Kein Umhang gefunden.",
+        FakeLagRemoved = "Fake Lag entfernt.",
+        NoFakeLagFound = "Kein Fake Lag gefunden.",
+        AlreadyHaveCloak = "Du hast bereits einen Umhang!",
+        AlreadyHaveFakeLag = "Du hast bereits ein Fake Lag!"
+    },
+    French = {
+        WindowName = "B3tterDex (Inspiré par ! danDev's dan)",
+        LoadingTitle = "fer",
+        LoadingSubtitle = "Par @fer! & @carlos",
+        ShowText = "danDex",
+        AimAssistTab = "Aide à la visée",
+        SettingsLabel = "Cette partie est pour les paramètres",
+        AimDistance = "Distance de visée",
+        AllowShooting = "Autoriser le tir sans regarder",
+        AutoEquipGun = "Auto-équiper (Arme)",
+        AutoUnEquipGun = "Auto-déséquiper (Arme)",
+        MaxRaycast = "Max. Raycasts/Vérification cible",
+        NotifyShoot = "Notifier où le script a tiré",
+        AutoShoot = "Tir automatique",
+        Shoot2Die = "Tirer pour tuer",
+        Shoot2DieToClick2Die = "Tir mortel vers clic mortel",
+        AllowSliding = "Autoriser le kill par glissement",
+        KeybindsLabel = "Raccourcis clavier",
+        EnableAutoShootKey = "Activer le tir auto (touche)",
+        DisableAutoShootKey = "Désactiver le tir auto (touche)",
+        EnableAutoKnifeKey = "Activer le couteau auto (touche)",
+        DisableAutoKnifeKey = "Désactiver le couteau auto (touche)",
+        KnifeThrowLabel = "Lancer de couteau",
+        KnifeThrowSpeed = "Vitesse de lancer",
+        KnifeDetectionDist = "Distance de détection",
+        AutoEquipKnife = "Auto-équiper (Couteau)",
+        AutoUnequipKnife = "Auto-déséquiper (Couteau)",
+        AutoKnifeThrow = "Lancer de couteau auto",
+        EspTab = "ESP",
+        EnemyEspLabel = "ESP Équipe ennemie",
+        EnableEsp = "Activer ESP",
+        TeamMatesEspLabel = "ESP Coéquipiers",
+        EnableTeamMatesEsp = "Activer ESP coéquipiers",
+        KillTab = "Tuer",
+        TargetingLabel = "Options de ciblage",
+        SelectTargets = "Sélectionner les cibles",
+        SpamKillTarget = "Tuer la cible en boucle",
+        KillAllOnce = "Tuer tout le monde une fois",
+        RealKillingLabel = "VRAI massacre",
+        KillSpamAll = "Tuer en boucle (TOUS)",
+        KillAllWithGun = "Tuer tout le monde avec l'arme",
+        KillSpamGunAll = "Tuer en boucle avec arme (TOUS)",
+        InventoryTab = "Inventaire",
+        CloakLabel = "Cape d'invisibilité",
+        CloakAccel = "Accélération de la cape",
+        CloakSpeed = "Vitesse de la cape",
+        GiveCloak = "Donner la cape",
+        RemoveCloak = "Retirer la cape",
+        AutoCloak = "Auto-cape au respawn",
+        FakeLagLabel = "Fake Lag",
+        FakeLagDesc = "Fake Lag. Fige votre avatar dans une animation et en crée un nouveau pour simuler du lag.",
+        GiveFakeLag = "Donner Fake Lag",
+        RemoveFakeLag = "Retirer FakeLag",
+        AutoFakeLag = "Auto-Fake Lag au respawn",
+        IdiomaTab = "Langue/Idiome",
+        LanguageTo = "Choisir la langue?",
+        SetIdiom = "Appliquer la langue (Redémarre le script)",
+        OpenButtonTab = "Bouton Ouvrir",
+        HideOpenLabel = "Cacher le bouton Ouvrir (Par FastDex ty)",
+        HideBtn = "Cacher le bouton",
+        ShowBtn = "Afficher le bouton",
+        KeybindNotifyEnabled = "Tir auto ACTIVÉ",
+        KeybindNotifyDisabled = "Tir auto DÉSACTIVÉ",
+        KeybindKnifeEnabled = "Couteau auto ACTIVÉ",
+        KeybindKnifeDisabled = "Couteau auto DÉSACTIVÉ",
+        ShootingNotify = "Tir!",
+        ShootPosContent = "Position du tir : ",
+        Click2DieTitle = "Clic pour tuer",
+        Click2DieContent = "%s tué(e) !",
+        Shoot2DieTitle = "Tir mortel",
+        Shoot2DieContent = "%s éliminé(e) !",
+        SwipeNotifyTitle = "Tir mortel",
+        SwipeNotifyContent = "Tué par glissement sur %s !",
+        TouchDeviceTitle = "Appareil tactile détecté",
+        TouchDeviceContent = "Les raccourcis clavier ne fonctionneront pas car votre appareil n'a pas de clavier physique.",
+        RayfieldError = "Interface Rayfield introuvable.",
+        CloakRemoved = "Cape retirée.",
+        NoCloakFound = "Aucune cape trouvée.",
+        FakeLagRemoved = "Fake Lag retiré.",
+        NoFakeLagFound = "Aucun Fake Lag trouvé.",
+        AlreadyHaveCloak = "Vous avez déjà une cape !",
+        AlreadyHaveFakeLag = "Vous avez déjà un Fake Lag !"
+    },
+    Portuguese = {
+        WindowName = "B3tterDex (Inspirado em ! danDev's dan)",
+        LoadingTitle = "Carlos",
+        LoadingSubtitle = "Por @fer! & @carlos",
+        ShowText = "danDex",
+        AimAssistTab = "Assistência de mira",
+        SettingsLabel = "Esta parte é para configurações",
+        AimDistance = "Distância de mira",
+        AllowShooting = "Permitir atirar sem olhar",
+        AutoEquipGun = "Auto-equipar (Arma)",
+        AutoUnEquipGun = "Auto-desequipar (Arma)",
+        MaxRaycast = "Máx. raycasts/verif. de alvo",
+        NotifyShoot = "Notificar onde o script atirou",
+        AutoShoot = "Auto-disparo",
+        Shoot2Die = "Atirar para matar",
+        Shoot2DieToClick2Die = "Atirar para matar para clique para matar",
+        AllowSliding = "Permitir matar deslizando",
+        KeybindsLabel = "Atalhos de teclado",
+        EnableAutoShootKey = "Ativar auto-disparo (tecla)",
+        DisableAutoShootKey = "Desativar auto-disparo (tecla)",
+        EnableAutoKnifeKey = "Ativar auto-faca (tecla)",
+        DisableAutoKnifeKey = "Desativar auto-faca (tecla)",
+        KnifeThrowLabel = "Arremesso de faca",
+        KnifeThrowSpeed = "Velocidade de arremesso",
+        KnifeDetectionDist = "Distância de detecção",
+        AutoEquipKnife = "Auto-equipar (Faca)",
+        AutoUnequipKnife = "Auto-desequipar (Faca)",
+        AutoKnifeThrow = "Auto-arremessar faca",
+        EspTab = "ESP",
+        EnemyEspLabel = "ESP Time inimigo",
+        EnableEsp = "Ativar ESP",
+        TeamMatesEspLabel = "ESP Aliados",
+        EnableTeamMatesEsp = "Ativar ESP de aliados",
+        KillTab = "Matar",
+        TargetingLabel = "Opções de alvo",
+        SelectTargets = "Selecionar alvos",
+        SpamKillTarget = "Matar alvo repetidamente",
+        KillAllOnce = "Matar todos uma vez",
+        RealKillingLabel = "Matança real",
+        KillSpamAll = "Matar todos repetidamente (TODOS)",
+        KillAllWithGun = "Matar todos com arma",
+        KillSpamGunAll = "Matar todos repetidamente com arma (TODOS)",
+        InventoryTab = "Inventário",
+        CloakLabel = "Capa de invisibilidade",
+        CloakAccel = "Aceleração da capa",
+        CloakSpeed = "Velocidade da capa",
+        GiveCloak = "Dar capa",
+        RemoveCloak = "Remover capa",
+        AutoCloak = "Auto-capa ao renascer",
+        FakeLagLabel = "Fake Lag",
+        FakeLagDesc = "Fake Lag. Congela seu avatar em uma animação e cria um novo para simular lag.",
+        GiveFakeLag = "Dar Fake Lag",
+        RemoveFakeLag = "Remover FakeLag",
+        AutoFakeLag = "Auto-Fake Lag ao renascer",
+        IdiomaTab = "Idioma/Língua",
+        LanguageTo = "Escolher idioma?",
+        SetIdiom = "Definir idioma (Reinicia o script)",
+        OpenButtonTab = "Botão Abrir",
+        HideOpenLabel = "Ocultar botão Abrir (Por FastDex ty)",
+        HideBtn = "Ocultar botão",
+        ShowBtn = "Mostrar botão",
+        KeybindNotifyEnabled = "Auto-disparo ATIVADO",
+        KeybindNotifyDisabled = "Auto-disparo DESATIVADO",
+        KeybindKnifeEnabled = "Auto-faca ATIVADO",
+        KeybindKnifeDisabled = "Auto-faca DESATIVADO",
+        ShootingNotify = "Atirando!",
+        ShootPosContent = "Posição do tiro: ",
+        Click2DieTitle = "Clique para matar",
+        Click2DieContent = "%s morto(a)!",
+        Shoot2DieTitle = "Atirar para matar",
+        Shoot2DieContent = "%s eliminado(a)!",
+        SwipeNotifyTitle = "Atirar para matar",
+        SwipeNotifyContent = "Morte por deslize em %s!",
+        TouchDeviceTitle = "Dispositivo touch detectado",
+        TouchDeviceContent = "Os atalhos de teclado não funcionarão porque seu dispositivo não possui teclado físico.",
+        RayfieldError = "Interface Rayfield não encontrada.",
+        CloakRemoved = "Capa removida.",
+        NoCloakFound = "Nenhuma capa encontrada.",
+        FakeLagRemoved = "Fake Lag removido.",
+        NoFakeLagFound = "Nenhum Fake Lag encontrado.",
+        AlreadyHaveCloak = "Você já tem uma capa!",
+        AlreadyHaveFakeLag = "Você já tem um Fake Lag!"
+    }
+}
+
+local newTranslations = {
+    English = {
+        AutoFarmTab = "Auto Farm",
+        AutoFarmLabel = "Auto go to 2v2 or 3v3 (respects and not spams)",
+        AutoJoin2v2 = "Auto go to 2v2",
+        AutoJoin3v3 = "Auto go to 3v3",
+        EnableInstaKilling = "Enable InstaKilling",
+        AutoFarmScriptLabel = "Auto Farm Script",
+    },
+    Spanish = {
+        AutoFarmTab = "Auto Farm",
+        AutoFarmLabel = "Auto ir a 2v2 o 3v3 (respeta y no spamea)",
+        AutoJoin2v2 = "Auto ir a 2v2",
+        AutoJoin3v3 = "Auto ir a 3v3",
+        EnableInstaKilling = "Activar InstaKilling",
+        AutoFarmScriptLabel = "Script de Auto Farm",
+    },
+    German = {
+        AutoFarmTab = "Auto Farm",
+        AutoFarmLabel = "Auto zu 2v2 oder 3v3 gehen (respektiert und spamt nicht)",
+        AutoJoin2v2 = "Auto zu 2v2",
+        AutoJoin3v3 = "Auto zu 3v3",
+        EnableInstaKilling = "InstaKilling aktivieren",
+        AutoFarmScriptLabel = "Auto Farm Skript",
+    },
+    French = {
+        AutoFarmTab = "Auto Farm",
+        AutoFarmLabel = "Aller automatiquement en 2v2 ou 3v3 (respecte et ne spamme pas)",
+        AutoJoin2v2 = "Auto aller en 2v2",
+        AutoJoin3v3 = "Auto aller en 3v3",
+        EnableInstaKilling = "Activer InstaKilling",
+        AutoFarmScriptLabel = "Script Auto Farm",
+    },
+    Portuguese = {
+        AutoFarmTab = "Auto Farm",
+        AutoFarmLabel = "Auto ir para 2v2 ou 3v3 (respeita e não spama)",
+        AutoJoin2v2 = "Auto ir para 2v2",
+        AutoJoin3v3 = "Auto ir para 3v3",
+        EnableInstaKilling = "Ativar InstaKilling",
+        AutoFarmScriptLabel = "Script Auto Farm",
+    },
+}
+-- I set this here for optimizing script
+
+for lang, translations in pairs(newTranslations) do
+    if wordsToConvert[lang] then
+        for k, v in pairs(translations) do
+            wordsToConvert[lang][k] = v
+        end
+    end
+end
+
+local Language = GetSetting("Language", "English")
+local lang = wordsToConvert[Language] or wordsToConvert.English
+
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+local Window = Rayfield:CreateWindow({
+    Name = lang.WindowName,
+    LoadingTitle = lang.LoadingTitle,
+    LoadingSubtitle = lang.LoadingSubtitle,
+    ConfigurationSaving = {Enabled = true, FolderName = "B3tterDex", FileName = "Settings"},
+    KeySystem = false,
+    ShowText = lang.ShowText,
+    Icon = 6494810185
+})
+
+local function FortifyUI()
+    local function randomString()
+        local length = math.random(12, 25)
+        local chars = "bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ0123456789"
+        local result = {}
+        for _ = 1, length do
+            result[#result + 1] = chars:sub(math.random(#chars), math.random(#chars))
+        end
+        return table.concat(result)
+    end
+
+    local coreGui = cloneref(game:GetService("CoreGui"))
+
+    local gui
+    local startTime = tick()
+    repeat
+        for _, child in ipairs(coreGui:GetChildren()) do
+            if child:IsA("ScreenGui") and child:FindFirstChild("Rayfield") then
+                gui = child
+                break
+            end
+        end
+        if not gui then task.wait(0.3) end
+    until gui or (tick() - startTime > 15)
+
+    if not gui then return end
+
+    local function deepRename(instance)
+        for _, child in ipairs(instance:GetChildren()) do
+            pcall(function() child.Name = randomString() end)
+            if #child:GetChildren() > 0 then
+                deepRename(child)
+            end
+        end
+        instance.Name = randomString()
+    end
+    deepRename(gui)
+
+    local hideFolder = Instance.new("Folder")
+    hideFolder.Name = randomString()
+    hideFolder.Parent = coreGui
+
+    local currentFolder = hideFolder
+    for _ = 1, math.random(2, 4) do
+        local sub = Instance.new("Folder")
+        sub.Name = randomString()
+        sub.Parent = currentFolder
+        currentFolder = sub
+    end
+    gui.Parent = currentFolder
+
+    for _ = 1, 80 do
+        local folder = Instance.new("Folder")
+        folder.Name = randomString()
+        folder.Parent = workspace
+        local sg = Instance.new("ScreenGui")
+        sg.Name = randomString()
+        sg.DisplayOrder = 2147483647
+        sg.Parent = folder
+    end
+
+    for _ = 1, 80 do
+        local sg = Instance.new("ScreenGui")
+        sg.Name = randomString()
+        sg.DisplayOrder = 2147483647
+        sg.Parent = coreGui
+    end
+
+    task.spawn(function()
+        while gui and gui.Parent do
+            task.wait(5)
+            if gui.Parent ~= currentFolder then
+                pcall(function() gui.Parent = currentFolder end)
+            end
+            for _, child in ipairs(gui:GetDescendants()) do
+                local name = child.Name:lower()
+                if name:find("rayfield") or name:find("prompt") or name:find("title") or name:find("image") then
+                    pcall(function() child.Name = randomString() end)
+                end
+            end
+            pcall(function() gui.Name = randomString() end)
+        end
+    end)
+end
+
+task.spawn(FortifyUI)
+
+local BodyParts = {"Head","UpperTorso","LowerTorso","Torso","HumanoidRootPart","Left Arm","Right Arm","Left Leg","Right Leg"}
+
+local AimDistance = GetSetting("AimDistance", 500)
+local KnifeThrowSpeed = GetSetting("KnifeThrowSpeed", 175)
+local AutoShootEnabled = GetSetting("AutoShootEnabled", false)
+local AllowShootingWhereYouDontLooking = GetSetting("AllowShootingWhereYouDontLooking", false)
+local AutoEquipEnabled = GetSetting("AutoEquipEnabled", true)
+local AutoUnEquipEnabled = GetSetting("AutoUnEquipEnabled", true)
+local MaxRaycastAttempts = GetSetting("MaxRaycastAttempts", 1)
+local NotifyWhereShooted = GetSetting("NotifyWhereShooted", false)
+local EspEnabled = GetSetting("EspEnabled", false)
+local EspTeamMatesEnabled = GetSetting("EspTeamMatesEnabled", false)
+local AutoGiveCloakEnabled = GetSetting("AutoGiveCloakEnabled", false)
+local CloakSpeed = GetSetting("CloakSpeed", 3)
+local CloakAccel = GetSetting("CloakAccel", 10)
+local AutoGiveFakeLagEnabled = GetSetting("AutoGiveFakeLagEnabled", false)
+local Shoot2DieEnabled = GetSetting("Shoot2DieEnabled", false)
+local Shoot2DieToClick2Die = GetSetting("Shoot2DieToClick2Die", false)
+local AllowSlidingKill = GetSetting("AllowSlidingKill", false)
+local autoThrow = GetSetting("autoThrow", false)
+local autoEquipKnife = GetSetting("autoEquipKnife", false)
+local autoUnequipKnife = GetSetting("autoUnequipKnife", false)
+local knifeDetectionDist = GetSetting("knifeDetectionDist", 500)
+
+local keybindEnableAutoShoot = GetSetting("keybindEnableAutoShoot", "E")
+local keybindDisableAutoShoot = GetSetting("keybindDisableAutoShoot", "R")
+local keybindEnableAutoKnife = GetSetting("keybindEnableAutoKnife", "T")
+local keybindDisableAutoKnife = GetSetting("keybindDisableAutoKnife", "Y")
+
+local LastShot = 0
+local CachedPing = 0
+local LastPingUpdate = 0
+local Highlights = {}
+local TeamMatesHighlights = {}
+local KillSpamEnabled, KillSpamAllEnabled, KillSpamWithGunAllEnabled = false, false, false
+local KillSpamConnection, KillSpamAllConnection, KillSpamWithGunAllConnection = nil, nil, nil
+local SelectedTargets = {}
+local EnemyDropdown = nil
+local CurrentEnemyOptions = {}
+local SlidingSessionActive = false
+local SlidingKills = {}
+local SlidingConnection = nil
+local CloakTool = nil
+local FakeLagTool = nil
+local CurrentGun = nil
+local CurrentKnife = nil
+
+local function GetLocalTeam()
+    local teamAttr = LocalPlayer:GetAttribute("Team")
+    if teamAttr and (teamAttr == "TeamRed" or teamAttr == "TeamBlue") then return teamAttr end
+    return nil
+end
+
+local function GetEnemyTeam()
+    local MyTeam = GetLocalTeam()
+    if not MyTeam then return nil end
+    return MyTeam == "TeamRed" and "TeamBlue" or "TeamRed"
+end
+
+local function GetTeamMates()
+    local MyTeam = GetLocalTeam()
+    if not MyTeam then return {} end
+    local List = {}
+    for _, Player in ipairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer then
+            local Character = Player.Character
+            if Character then
+                local Humanoid = Character:FindFirstChild("Humanoid")
+                if Humanoid and Humanoid.Health > 0 then
+                    if Player:GetAttribute("Team") == MyTeam then table.insert(List, Player) end
+                end
+            end
+        end
+    end
+    return List
+end
+
+local function GetEnemyPlayers()
+    local EnemyTeam = GetEnemyTeam()
+    if not EnemyTeam then return {} end
+    local List = {}
+    for _, Player in ipairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer then
+            local Character = Player.Character
+            if Character then
+                local Humanoid = Character:FindFirstChild("Humanoid")
+                if Humanoid and Humanoid.Health > 0 then
+                    if Player:GetAttribute("Team") == EnemyTeam then table.insert(List, Player) end
+                end
+            end
+        end
+    end
+    return List
+end
+
+local function getTeamFramesFromGui()
+    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not playerGui then return nil, nil end
+    local main = playerGui:FindFirstChild("Main")
+    if not main then return nil, nil end
+    local mainGameFrame = main:FindFirstChild("MainGameFrame")
+    if not mainGameFrame then return nil, nil end
+    local playersFrame = mainGameFrame:FindFirstChild("PlayersFrame")
+    if not playersFrame then return nil, nil end
+    return playersFrame:FindFirstChild("TeamRedFrame"), playersFrame:FindFirstChild("TeamBlueFrame")
+end
+
+local function GetEnemyNamesFromFrames()
+    local redFrame, blueFrame = getTeamFramesFromGui()
+    if not redFrame or not blueFrame then return {} end
+    local function getNames(frame)
+        local names = {}
+        if not frame then return names end
+        for _, child in ipairs(frame:GetChildren()) do
+            if child:IsA("Frame") or child:IsA("TextLabel") then
+                table.insert(names, child.Name)
+            end
+        end
+        return names
+    end
+    local redList = getNames(redFrame)
+    local blueList = getNames(blueFrame)
+    local localName = LocalPlayer.Name
+    local amRed = false
+    for _, name in ipairs(redList) do
+        if name == localName then amRed = true break end
+    end
+    local amBlue = false
+    for _, name in ipairs(blueList) do
+        if name == localName then amBlue = true break end
+    end
+    if not amRed and not amBlue then return {} end
+    return amRed and blueList or redList
+end
+
+local function GetPing()
+    local T = tick()
+    if T - LastPingUpdate > 0.1 then
+        local Ok, Res = pcall(function() return Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
+        if Ok then CachedPing = Res end
+        LastPingUpdate = T
+    end
+    return CachedPing or 30
+end
+
+local function GetClosestPlayer()
+    local Character = LocalPlayer.Character
+    if not Character then return nil end
+    local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
+    if not HumanoidRootPart then return nil end
+    local Best = nil
+    local Distance = AimDistance
+    for _, Player in ipairs(GetEnemyPlayers()) do
+        local TargetCharacter = Player.Character
+        if TargetCharacter then
+            local TargetHumanoidRootPart = TargetCharacter:FindFirstChild("HumanoidRootPart")
+            local TargetHumanoid = TargetCharacter:FindFirstChild("Humanoid")
+            if TargetHumanoidRootPart and TargetHumanoid and TargetHumanoid.Health > 0 then
+                local D = (HumanoidRootPart.Position - TargetHumanoidRootPart.Position).Magnitude
+                if D < Distance then Distance = D Best = Player end
+            end
+        end
+    end
+    return Best
+end
+
+local function LookingEnemy(Target)
+    if not Target or not Target.Character then return false end
+    local TargetCharacter = Target.Character
+    local TargetHumanoidRootPart = TargetCharacter:FindFirstChild("HumanoidRootPart")
+    if not TargetHumanoidRootPart then return false end
+    local Position = TargetHumanoidRootPart.Position
+    local FOV = 90
+    local Character = LocalPlayer.Character
+    if not Character then return false end
+    local HRP = Character:FindFirstChild("HumanoidRootPart")
+    if not HRP then return false end
+    local Origin = Camera.CFrame.Position
+    local Direction = Position - Origin
+    local Distance = Direction.Magnitude
+    if Distance <= 0 then return false end
+    local UnitDir = Direction / Distance
+    local Look = Camera.CFrame.LookVector
+    local Threshold = math.cos(math.rad(FOV * 0.5))
+    if Look:Dot(UnitDir) < Threshold then return false end
+    local Params = RaycastParams.new()
+    Params.FilterDescendantsInstances = {Character, TargetCharacter}
+    Params.FilterType = Enum.RaycastFilterType.Blacklist
+    local Result = Workspace:Raycast(Origin, Direction, Params)
+    if not Result then return true end
+    return (Result.Position - Position).Magnitude < 2
+end
+
+local function GetBox(Part, Origin, Tries)
+    local Cf = Part.CFrame
+    local Size = Part.Size * 0.5
+    local Best = nil
+    local Vel = Part.AssemblyLinearVelocity or Vector3.new()
+    local Right = Cf.RightVector
+    local Up = Cf.UpVector
+    local Look = Cf.LookVector
+    local Rdot = Vel:Dot(Right)
+    local Udot = Vel:Dot(Up)
+    local Ldot = Vel:Dot(Look)
+    for I = 1, Tries do
+        local Rx = (math.random() - 0.5) * 2
+        local Ry = (math.random() - 0.5) * 2
+        local Rz = (math.random() - 0.5) * 2
+        if math.abs(Rdot) > 0.1 then Rx = Rdot > 0 and math.abs(Rx) or -math.abs(Rx) else Rx = Rx * 0.25 end
+        if math.abs(Udot) > 0.1 then Ry = Udot > 0 and math.abs(Ry) or -math.abs(Ry) else Ry = Ry * 0.25 end
+        if math.abs(Ldot) > 0.1 then Rz = Ldot > 0 and math.abs(Rz) or -math.abs(Rz) else Rz = Rz * 0.25 end
+        local Point = Cf.Position + Right * (Rx * Size.X) + Up * (Ry * Size.Y) + Look * (Rz * Size.Z)
+        local Dir = (Cf.Position - Origin).Unit
+        Point = Point + Dir * 0.05
+        if not Best or (Point - Origin).Magnitude < (Best - Origin).Magnitude then Best = Point end
+    end
+    return Best
+end
+
+local function GetPredictedPosition(Player)
+    if not Player or not Player.Character then return nil end
+    local Target = Player.Character
+    local Part = Target:FindFirstChild("HumanoidRootPart")
+    if not Part then return nil end
+    local LocalCharacter = LocalPlayer.Character
+    if not LocalCharacter then return nil end
+    local LocalHumanoidRootPart = LocalCharacter:FindFirstChild("HumanoidRootPart")
+    if not LocalHumanoidRootPart then return nil end
+    local Pos = GetBox(Part, LocalHumanoidRootPart.Position, 5)
+    local Cf = Part.CFrame
+    local Look = Cf.LookVector
+    local Vel = Part.AssemblyLinearVelocity or Vector3.new()
+    local Angular = Part.AssemblyAngularVelocity or Vector3.new()
+    local T = (GetPing() / 1000) * 0.01
+    local Predicted = Pos + Vel * T
+    local Forward = Vel:Dot(Look)
+    if Forward > 0 then Predicted = Predicted + Look * (Forward * 0.002) end
+    if Angular.Magnitude > 0.2 and Vel.Magnitude > 0.5 then
+        local Rel = Predicted - Pos
+        Predicted = Predicted + Angular.Unit:Cross(Rel.Unit) * Rel.Magnitude * 0.08
+    end
+    return Predicted
+end
+
+local function IfISeeTarget(Player)
+    if not Player then return false end
+    local LocalCharacter = LocalPlayer.Character
+    local TargetCharacter = Player.Character
+    if not LocalCharacter or not TargetCharacter then return false end
+    local LocalHumanoidRootPart = LocalCharacter:FindFirstChild("HumanoidRootPart")
+    if not LocalHumanoidRootPart then return false end
+    if (LocalHumanoidRootPart.Position - TargetCharacter:GetPrimaryPartCFrame().Position).Magnitude > AimDistance then return false end
+    local Params = RaycastParams.new()
+    Params.FilterType = Enum.RaycastFilterType.Blacklist
+    Params.FilterDescendantsInstances = {LocalCharacter, TargetCharacter}
+    Params.IgnoreWater = true
+    for I = 1, #BodyParts do
+        local Part = TargetCharacter:FindFirstChild(BodyParts[I])
+        if Part and Part:IsA("BasePart") then
+            local Point = GetBox(Part, LocalHumanoidRootPart.Position, MaxRaycastAttempts)
+            local Dir = Point - LocalHumanoidRootPart.Position
+            local R = Workspace:Raycast(LocalHumanoidRootPart.Position, Dir, Params)
+            if not R or (R.Instance and R.Instance:IsDescendantOf(TargetCharacter)) then return true end
+        end
+    end
+    return false
+end
+
+local function HasWeaponEquipped()
+    local Character = LocalPlayer.Character
+    if not Character then return false, nil end
+    for _, Tool in ipairs(Character:GetChildren()) do
+        if Tool:IsA("Tool") and (Tool:FindFirstChild("fire") or Tool:FindFirstChild("Fire")) then
+            return true, Tool
+        end
+    end
+    return false, nil
+end
+
+local function getEquippedKnife()
+    local char = LocalPlayer.Character
+    if not char then return nil, nil, nil end
+    for _, obj in ipairs(char:GetChildren()) do
+        local remote = obj:FindFirstChild("Throw")
+        local handle = obj:FindFirstChild("Handle")
+        if remote and handle and handle:IsA("BasePart") then
+            return obj, remote, handle
+        end
+    end
+    return nil, nil, nil
+end
+
+local function UnequipGun()
+    if not CurrentGun then return end
+    local Backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not Backpack then return end
+    if CurrentGun.Parent == LocalPlayer.Character then
+        CurrentGun.Parent = Backpack
+    end
+    CurrentGun = nil
+end
+
+local function UnequipKnife()
+    if not CurrentKnife then return end
+    local Backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not Backpack then return end
+    if CurrentKnife.Parent == LocalPlayer.Character then
+        CurrentKnife.Parent = Backpack
+    end
+    CurrentKnife = nil
+end
+
+local function EquipGun()
+    if not AutoEquipEnabled then return nil end
+    local Character = LocalPlayer.Character
+    if not Character then return nil end
+    local Backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not Backpack then return nil end
+    local equipped, _ = HasWeaponEquipped()
+    if equipped then return CurrentGun end
+    UnequipKnife()
+    CurrentGun = nil
+    for _, tool in ipairs(Backpack:GetChildren()) do
+        if tool:IsA("Tool") and (tool:FindFirstChild("fire") or tool:FindFirstChild("Fire")) then
+            tool.Parent = Character
+            task.wait(0.05)
+            if tool.Parent == Character then
+                CurrentGun = tool
+                return tool
+            end
+        end
+    end
+    return nil
+end
+
+local function EquipKnifeForThrow()
+    if not autoEquipKnife then return nil end
+    local Character = LocalPlayer.Character
+    if not Character then return nil end
+    local Backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not Backpack then return nil end
+    local _, _, equipped = getEquippedKnife()
+    if equipped then return CurrentKnife end
+    UnequipGun()
+    CurrentKnife = nil
+    for _, tool in ipairs(Backpack:GetChildren()) do
+        if tool:IsA("Tool") and tool:FindFirstChild("Throw") and tool:FindFirstChild("Handle") then
+            local hum = Character:FindFirstChildOfClass("Humanoid")
+            if hum then
+                pcall(function() hum:EquipTool(tool) end)
+                task.wait(0.05)
+                if tool.Parent == Character then
+                    CurrentKnife = tool
+                    return tool
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function ensureKnifeReady()
+    local _, _, handle = getEquippedKnife()
+    if not handle then
+        if autoEquipKnife then EquipKnifeForThrow() end
+        return false
+    end
+    for _ = 1, 20 do
+        if handle and handle.Position ~= Vector3.zero then return true end
+        task.wait(0.05)
+        _, _, handle = getEquippedKnife()
+    end
+    return handle ~= nil and handle.Position ~= Vector3.zero
+end
+
+local function Shoot(Target, Pos)
+    local Character = LocalPlayer.Character
+    if not Character then return false end
+    for _, Tool in ipairs(Character:GetChildren()) do
+        if Tool:IsA("Tool") then
+            local Fire = Tool:FindFirstChild("fire") or Tool:FindFirstChild("Fire")
+            if Fire then
+                local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
+                if not HumanoidRootPart then return false end
+                local Handle = Tool:FindFirstChild("Handle") or Tool
+                local Beam = ReplicatedStorage:FindFirstChild("LocalBeam")
+                local Show = Tool:FindFirstChild("showBeam")
+                local Kill = Tool:FindFirstChild("kill") or Tool:FindFirstChild("Kill")
+                pcall(function() Fire:FireServer() end)
+                if Beam then pcall(function() Beam:Fire(Handle, Pos) end) end
+                if Show then pcall(function() Show:FireServer(Pos, HumanoidRootPart.Position, Handle) end) end
+                if Kill then pcall(function() Kill:FireServer(Target, (Pos - HumanoidRootPart.Position).Unit, HumanoidRootPart.Position) end) end
+                if NotifyWhereShooted then
+                    Rayfield:Notify({Title = lang.ShootingNotify, Content = lang.ShootPosContent .. tostring(Pos), Duration = 2, Image = "target"})
+                end
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function FastFireTarget(forceTarget)
+    if not AutoShootEnabled then return end
+    local Target = forceTarget or GetClosestPlayer()
+    if not Target then
+        if AutoUnEquipEnabled then UnequipGun() end
+        return
+    end
+    if not AllowShootingWhereYouDontLooking and not LookingEnemy(Target) then
+        if AutoUnEquipEnabled then UnequipGun() end
+        return
+    end
+    if not IfISeeTarget(Target) then
+        if AutoUnEquipEnabled then UnequipGun() end
+        return
+    end
+    local Pos = GetPredictedPosition(Target)
+    if not Pos then
+        if AutoUnEquipEnabled then UnequipGun() end
+        return
+    end
+    local Eq, Tool = HasWeaponEquipped()
+    if not Eq then
+        if AutoEquipEnabled then
+            Tool = EquipGun()
+            if not Tool or Tool.Parent ~= LocalPlayer.Character then return end
+        else
+            if AutoUnEquipEnabled then UnequipGun() end
+            return
+        end
+    end
+    Shoot(Target, Pos)
+    LastShot = tick()
+    if AutoUnEquipEnabled then
+        task.delay(0.008, function()
+            if CurrentGun and CurrentGun.Parent == LocalPlayer.Character then
+                UnequipGun()
+            end
+        end)
+    end
+end
+
+local function GetToolWithKill()
+    if LocalPlayer.Character then
+        for _, Tool in ipairs(LocalPlayer.Character:GetChildren()) do
+            if Tool:IsA("Tool") and Tool:FindFirstChild("kill") then return Tool, Tool.kill end
+        end
+    end
+    for _, Tool in ipairs(LocalPlayer.Backpack:GetChildren()) do
+        if Tool:IsA("Tool") and Tool:FindFirstChild("kill") then return Tool, Tool.kill end
+    end
+    return nil, nil
+end
+
+local function GetClosestEnemyByMouse()
+    local mp = UserInputService:GetMouseLocation()
+    local sp = Vector2.new(mp.X, mp.Y)
+    local best, bestDist = nil, 50
+    for _, enemy in ipairs(GetEnemyPlayers()) do
+        local hrp = enemy.Character and enemy.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+            if onScreen then
+                local dist = (Vector2.new(screenPos.X, screenPos.Y) - sp).Magnitude
+                if dist < bestDist then bestDist = dist best = enemy end
+            end
+        end
+    end
+    return best
+end
+
+local function PerformKnifeKill(target)
+    if not target or not KnifeKill then return end
+    for _ = 1, 5 do pcall(function() KnifeKill:FireServer(target, target) end) end
+end
+
+local function Shoot2Die(ignoreSlide)
+    if not Shoot2DieEnabled and not ignoreSlide then return end
+    local target = GetClosestEnemyByMouse()
+    if not target then return end
+    if Shoot2DieToClick2Die then
+        PerformKnifeKill(target)
+        if not ignoreSlide then
+            Rayfield:Notify({Title = lang.Click2DieTitle, Content = string.format(lang.Click2DieContent, target.Name), Duration = 2})
+        end
+        return
+    end
+    PerformKnifeKill(target)
+    local Tool, KillRemote = GetToolWithKill()
+    if KillRemote and Tool and Tool:FindFirstChild("Handle") then
+        local direction = (target.Character.HumanoidRootPart.Position - Tool.Handle.Position).Unit
+        for _ = 1, 5 do pcall(function() KillRemote:FireServer(target, direction) end) end
+    end
+    local Eq, GunTool = HasWeaponEquipped()
+    if not Eq and AutoEquipEnabled then GunTool = EquipGun() end
+    if GunTool then
+        local pos = GetPredictedPosition(target)
+        if pos then for _ = 1, 3 do Shoot(target, pos) end end
+    end
+    if not ignoreSlide then
+        Rayfield:Notify({Title = lang.Shoot2DieTitle, Content = string.format(lang.Shoot2DieContent, target.Name), Duration = 2, Image = "target"})
+    end
+end
+
+local function KillTarget(Enemy)
+    if not Enemy then return false end
+    local TargetCharacter = Enemy.Character
+    if not TargetCharacter then return false end
+    local TargetHumanoidRootPart = TargetCharacter:FindFirstChild("HumanoidRootPart")
+    if not TargetHumanoidRootPart then return false end
+    local Tool, Kill = GetToolWithKill()
+    if KnifeKill then pcall(function() KnifeKill:FireServer(Enemy, Enemy) end) end
+    if Kill then
+        local Direction = CFrame.lookAt(Tool and Tool:FindFirstChild("Handle") and Tool.Handle.Position or Vector3.new(0,0,0), TargetHumanoidRootPart.Position).LookVector
+        pcall(function() Kill:FireServer(Enemy, Direction) end)
+    end
+    return true
+end
+
+local function KillTargetWithGun(Enemy)
+    if not Enemy then return false end
+    local Pos = GetPredictedPosition(Enemy)
+    if not Pos then return false end
+    local Eq, Tool = HasWeaponEquipped()
+    if not Eq then
+        if AutoEquipEnabled then Tool = EquipGun() if not Tool or Tool.Parent ~= LocalPlayer.Character then return false end
+        else return false end
+    end
+    Shoot(Enemy, Pos)
+    if AutoUnEquipEnabled and not Eq then
+        task.delay(0.008, function()
+            if CurrentGun and CurrentGun.Parent == LocalPlayer.Character then UnequipGun() end
+        end)
+    end
+    return true
+end
+
+local function KillAllOnce()
+    for _, Enemy in ipairs(GetEnemyPlayers()) do
+        KillTarget(Enemy)
+    end
+end
+
+local function KillAllWithGunOnce()
+    for _, Enemy in ipairs(GetEnemyPlayers()) do
+        KillTargetWithGun(Enemy)
+    end
+end
+
+local function StopAllKillSpams()
+    if KillSpamConnection then KillSpamConnection:Disconnect() end
+    if KillSpamAllConnection then KillSpamAllConnection:Disconnect() end
+    if KillSpamWithGunAllConnection then KillSpamWithGunAllConnection:Disconnect() end
+end
+
+local function StartKillSpam()
+    StopAllKillSpams()
+    if not KillSpamEnabled then return end
+    KillSpamConnection = RunService.Heartbeat:Connect(function()
+        for _, PlayerName in ipairs(SelectedTargets) do
+            local Player = Players:FindFirstChild(PlayerName)
+            if Player and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+                KillTarget(Player)
+            end
+        end
+    end)
+end
+
+local function StartKillSpamAll()
+    StopAllKillSpams()
+    if not KillSpamAllEnabled then return end
+    KillSpamAllConnection = RunService.Heartbeat:Connect(function()
+        for _, Player in ipairs(GetEnemyPlayers()) do
+            if Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+                KillTarget(Player)
+            end
+        end
+    end)
+end
+
+local function StartKillSpamWithGunAll()
+    StopAllKillSpams()
+    if not KillSpamWithGunAllEnabled then return end
+    KillSpamWithGunAllConnection = RunService.Heartbeat:Connect(function()
+        for _, Player in ipairs(GetEnemyPlayers()) do
+            if Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+                KillTargetWithGun(Player)
+            end
+        end
+    end)
+end
+
+local function UpdateHighlights()
+    if not EspEnabled then
+        for Player, Highlight in pairs(Highlights) do
+            if Highlight then pcall(function() Highlight:Destroy() end) end
+            Highlights[Player] = nil
+        end
+        for Player, Highlight in pairs(TeamMatesHighlights) do
+            if Highlight then pcall(function() Highlight:Destroy() end) end
+            TeamMatesHighlights[Player] = nil
+        end
+        return
+    end
+    local CurrentEnemies = {}
+    for _, Player in ipairs(GetEnemyPlayers()) do
+        CurrentEnemies[Player] = true
+        local Character = Player.Character
+        if Character then
+            local Humanoid = Character:FindFirstChild("Humanoid")
+            if Humanoid and Humanoid.Health > 0 then
+                local EnemyTeam = GetEnemyTeam()
+                local Color = EnemyTeam == "TeamRed" and Color3.fromRGB(255,50,50) or Color3.fromRGB(50,50,255)
+                if not Highlights[Player] or not Highlights[Player].Parent then
+                    local Highlight = Instance.new("Highlight")
+                    Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    Highlight.FillTransparency = 0.3
+                    Highlight.OutlineTransparency = 0
+                    Highlight.OutlineColor = Color3.fromRGB(255,255,255)
+                    Highlight.FillColor = Color
+                    Highlight.Adornee = Character
+                    Highlight.Parent = Character
+                    Highlights[Player] = Highlight
+                else
+                    local Highlight = Highlights[Player]
+                    Highlight.Adornee = Character
+                    Highlight.FillColor = Color
+                    Highlight.Parent = Character
+                end
+            end
+        end
+    end
+    for Player, Highlight in pairs(Highlights) do
+        if not CurrentEnemies[Player] then
+            if Highlight then pcall(function() Highlight:Destroy() end) end
+            Highlights[Player] = nil
+        end
+    end
+    if EspTeamMatesEnabled then
+        local CurrentTeamMates = {}
+        for _, Player in ipairs(GetTeamMates()) do
+            CurrentTeamMates[Player] = true
+            local Character = Player.Character
+            if Character then
+                local Humanoid = Character:FindFirstChild("Humanoid")
+                if Humanoid and Humanoid.Health > 0 then
+                    local MyTeam = GetLocalTeam()
+                    local Color = MyTeam == "TeamRed" and Color3.fromRGB(255,100,100) or Color3.fromRGB(100,100,255)
+                    if not TeamMatesHighlights[Player] or not TeamMatesHighlights[Player].Parent then
+                        local Highlight = Instance.new("Highlight")
+                        Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        Highlight.FillTransparency = 0.3
+                        Highlight.OutlineTransparency = 0
+                        Highlight.OutlineColor = Color3.fromRGB(255,255,255)
+                        Highlight.FillColor = Color
+                        Highlight.Adornee = Character
+                        Highlight.Parent = Character
+                        TeamMatesHighlights[Player] = Highlight
+                    else
+                        local Highlight = TeamMatesHighlights[Player]
+                        Highlight.Adornee = Character
+                        Highlight.FillColor = Color
+                        Highlight.Parent = Character
+                    end
+                end
+            end
+        end
+        for Player, Highlight in pairs(TeamMatesHighlights) do
+            if not CurrentTeamMates[Player] then
+                if Highlight then pcall(function() Highlight:Destroy() end) end
+                TeamMatesHighlights[Player] = nil
+            end
+        end
+    else
+        for Player, Highlight in pairs(TeamMatesHighlights) do
+            if Highlight then pcall(function() Highlight:Destroy() end) end
+            TeamMatesHighlights[Player] = nil
+        end
+    end
+end
+
+local function GetMyCurrentAnimation()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    local animator = hum:FindFirstChildOfClass("Animator")
+    if not animator then return end
+    local tracks = animator:GetPlayingAnimationTracks()
+    if #tracks == 0 then return end
+    local track = tracks[1]
+    local anim = track.Animation
+    return anim and anim.AnimationId, track
+end
+
+local function CreateFakePart(realHRP)
+    local FakePart = Instance.new("Part")
+    FakePart.Size = realHRP.Size
+    FakePart.Transparency = 0.5
+    FakePart.Anchored = true
+    FakePart.CanCollide = false
+    FakePart.CanTouch = false
+    FakePart.CanQuery = false
+    FakePart.Massless = true
+    FakePart.CastShadow = false
+    FakePart.CFrame = realHRP.CFrame
+    FakePart.Parent = Camera
+    return FakePart
+end
+
+local function GiveCloak()
+    if CloakTool and CloakTool.Parent and CloakTool:IsDescendantOf(LocalPlayer) then
+        Rayfield:Notify({Title = "Cloak", Content = lang.AlreadyHaveCloak, Duration = 2})
+        return
+    end
+    local Tool = Instance.new("Tool")
+    Tool.Name = "Desync (NOT real desync)"
+    Tool.RequiresHandle = false
+    Tool.Parent = LocalPlayer.Backpack
+    CloakTool = Tool
+    local Active = false
+    local RealHRP, FakeHRP, Humanoid, Loop
+    local SPEED = CloakSpeed
+    local ACCEL = CloakAccel
+    local Velocity = Vector3.zero
+    Tool.Equipped:Connect(function()
+        if Active then return end
+        Active = true
+        local Character = LocalPlayer.Character
+        if not Character then return end
+        Humanoid = Character:FindFirstChildOfClass("Humanoid")
+        RealHRP = Character:FindFirstChild("HumanoidRootPart")
+        if not Humanoid or not RealHRP then return end
+        FakeHRP = CreateFakePart(RealHRP)
+        RealHRP.Anchored = true
+        RealHRP.CFrame = FAR
+        Camera.CameraSubject = FakeHRP
+        Loop = RunService.RenderStepped:Connect(function(dt)
+            if Active and RealHRP then
+                RealHRP.CFrame = FAR
+                RealHRP.AssemblyLinearVelocity = Vector3.zero
+                RealHRP.AssemblyAngularVelocity = Vector3.zero
+            end
+            local cam = Camera.CFrame
+            local look = cam.LookVector
+            local right = cam.RightVector
+            local up = cam.UpVector
+            local move = Control:GetMoveVector()
+            local dir = Vector3.zero
+            if move.Z < 0 then dir += look elseif move.Z > 0 then dir -= look end
+            if move.X > 0 then dir += right elseif move.X < 0 then dir -= right end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir += up end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then dir -= up end
+            local targetVelocity = dir.Magnitude > 0 and dir.Unit * SPEED or Vector3.zero
+            Velocity = Velocity:Lerp(targetVelocity, math.clamp(dt * ACCEL, 0, 1))
+            local targetPos = FakeHRP.Position + Velocity
+            FakeHRP.CFrame = FakeHRP.CFrame:Lerp(CFrame.new(targetPos, targetPos + cam.LookVector), math.clamp(dt * 6, 0, 1))
+        end)
+    end)
+    Tool.Unequipped:Connect(function()
+        Active = false
+        if Loop then Loop:Disconnect() end
+        if Humanoid then Camera.CameraSubject = Humanoid end
+        if RealHRP and FakeHRP then
+            RealHRP.Anchored = false
+            local pos = FakeHRP.Position
+            pos = Vector3.new(changePos(pos.X), changePos(pos.Y), changePos(pos.Z))
+            RealHRP.CFrame = CFrame.new(pos) * (FakeHRP.CFrame - FakeHRP.Position)
+            RealHRP.AssemblyLinearVelocity = Vector3.zero
+            RealHRP.AssemblyAngularVelocity = Vector3.zero
+        end
+        if FakeHRP then FakeHRP:Destroy() end
+    end)
+    Rayfield:Notify({Title = "Cloak", Content = lang.GiveCloak, Duration = 2})
+end
+
+local function GiveFakeLag()
+    if FakeLagTool and FakeLagTool.Parent and FakeLagTool:IsDescendantOf(LocalPlayer) then
+        Rayfield:Notify({Title = "Fake Lag", Content = lang.AlreadyHaveFakeLag, Duration = 2})
+        return
+    end
+    local Tool = Instance.new("Tool")
+    Tool.Name = "Fake Lag"
+    Tool.RequiresHandle = false
+    Tool.Parent = LocalPlayer.Backpack
+    FakeLagTool = Tool
+    local Active = false
+    local RealHRP, FakeHRP_2, Humanoid, Loop, AnimationTrack
+    local SPEED = CloakSpeed
+    local ACCEL = CloakAccel
+    local Velocity = Vector3.zero
+    Tool.Equipped:Connect(function()
+        if Active then return end
+        Active = true
+        local Character = LocalPlayer.Character
+        if not Character then return end
+        Humanoid = Character:FindFirstChildOfClass("Humanoid")
+        RealHRP = Character:FindFirstChild("HumanoidRootPart")
+        if not Humanoid or not RealHRP then return end
+        RealHRP.Anchored = true
+        local animId, track = GetMyCurrentAnimation()
+        if track then AnimationTrack = track AnimationTrack:Play() end
+        FakeHRP_2 = CreateFakePart(RealHRP)
+        Camera.CameraSubject = FakeHRP_2
+        Loop = RunService.RenderStepped:Connect(function(dt)
+            local cam = Camera.CFrame
+            local look = cam.LookVector
+            local right = cam.RightVector
+            local up = cam.UpVector
+            local move = Control:GetMoveVector()
+            local dir = Vector3.zero
+            if move.Z < 0 then dir += look elseif move.Z > 0 then dir -= look end
+            if move.X > 0 then dir += right elseif move.X < 0 then dir -= right end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir += up end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then dir -= up end
+            local targetVelocity = dir.Magnitude > 0 and dir.Unit * SPEED or Vector3.zero
+            Velocity = Velocity:Lerp(targetVelocity, math.clamp(dt * ACCEL, 0, 1))
+            local targetPos = FakeHRP_2.Position + Velocity
+            FakeHRP_2.CFrame = FakeHRP_2.CFrame:Lerp(CFrame.new(targetPos, targetPos + cam.LookVector), math.clamp(dt * 6, 0, 1))
+        end)
+    end)
+    Tool.Unequipped:Connect(function()
+        Active = false
+        if Loop then Loop:Disconnect() end
+        if Humanoid then Camera.CameraSubject = Humanoid end
+        if AnimationTrack then AnimationTrack:Stop() AnimationTrack = nil end
+        if RealHRP and FakeHRP_2 then
+            RealHRP.CFrame = FakeHRP_2.CFrame
+            RealHRP.AssemblyLinearVelocity = Vector3.zero
+        end
+        if RealHRP then RealHRP.Anchored = false end
+        if FakeHRP_2 then FakeHRP_2:Destroy() end
+    end)
+    Rayfield:Notify({Title = "Fake Lag", Content = lang.GiveFakeLag, Duration = 2})
+end
+
+local function RemoveCloakToolFunc()
+    if CloakTool then
+        pcall(function() CloakTool:Destroy() end)
+        CloakTool = nil
+        Rayfield:Notify({Title = "Cloak", Content = lang.CloakRemoved, Duration = 2})
+    else
+        Rayfield:Notify({Title = "Cloak", Content = lang.NoCloakFound, Duration = 2})
+    end
+end
+
+local function RemoveFakeLagToolFunc()
+    if FakeLagTool then
+        pcall(function() FakeLagTool:Destroy() end)
+        FakeLagTool = nil
+        Rayfield:Notify({Title = "Fake Lag", Content = lang.FakeLagRemoved, Duration = 2})
+    else
+        Rayfield:Notify({Title = "Fake Lag", Content = lang.NoFakeLagFound, Duration = 2})
+    end
+end
+
+local function throwKnifeAt(target)
+    if not target or not target.Character then return false end
+    local targetHrp = target.Character:FindFirstChild("HumanoidRootPart")
+    if not targetHrp then return false end
+
+    local weapon, remote, handle = getEquippedKnife()
+    if not remote or not handle then return false end
+
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
+    local hrpPos = char.HumanoidRootPart.Position
+    local handlePos = handle.Position
+
+    local predictedPos = GetPredictedPosition(target)
+    if not predictedPos then return false end
+
+    local lineDir = (predictedPos - hrpPos).Unit
+    local handleOffset = handlePos - hrpPos
+    local projDistance = handleOffset:Dot(lineDir)
+    local correctedOrigin = hrpPos + projDistance * lineDir
+
+    local throwCFrame = CFrame.lookAt(correctedOrigin, predictedPos)
+    pcall(function()
+        remote:FireServer(throwCFrame, predictedPos)
+    end)
+    return true
+end
+
+local function tryKnifeKillFallback(target)
+    if not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then return false end
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
+    local dist = (target.Character.HumanoidRootPart.Position - char.HumanoidRootPart.Position).Magnitude
+    if dist > knifeDetectionDist then return false end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    params.FilterDescendantsInstances = {char}
+    local ray = workspace:Raycast(char.HumanoidRootPart.Position, (target.Character.HumanoidRootPart.Position - char.HumanoidRootPart.Position).Unit * dist, params)
+    if ray and not ray.Instance:IsDescendantOf(target.Character) then return false end
+    if KnifeKill then pcall(function() KnifeKill:FireServer(target, target) end) return true end
+    return false
+end
+
+local function getClosestVisibleEnemyForKnife()
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+    local origin = char.HumanoidRootPart.Position
+    local enemies = GetEnemyPlayers()
+    local best, bestDist = nil, knifeDetectionDist
+    for _, enemy in ipairs(enemies) do
+        local enemyChar = enemy.Character
+        if enemyChar then
+            local hrp = enemyChar:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local dist = (hrp.Position - origin).Magnitude
+                if dist <= bestDist and IfISeeTarget(enemy) then
+                    bestDist = dist
+                    best = enemy
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function FastThrowKnife()
+    if not autoThrow then return end
+    local target = getClosestVisibleEnemyForKnife()
+    if not target then
+        if autoUnequipKnife then UnequipKnife() end
+        return
+    end
+    if not ensureKnifeReady() then
+        if autoUnequipKnife then UnequipKnife() end
+        return
+    end
+    local success = throwKnifeAt(target)
+    if success then
+        tryKnifeKillFallback(target)
+        if autoUnequipKnife then
+            task.defer(function()
+                UnequipKnife()
+            end)
+        end
+    else
+        if autoUnequipKnife then
+            task.defer(function()
+                UnequipKnife()
+            end)
+        end
+    end
+end
+
+local Keybinds = {}
+local function setupKeybinds()
+    Keybinds = {}
+    Keybinds[keybindEnableAutoShoot] = function()
+        AutoShootEnabled = true
+        UpdateSetting("AutoShootEnabled", true)
+        Rayfield:Notify({Title = "Keybind", Content = lang.KeybindNotifyEnabled, Duration = 1})
+    end
+    Keybinds[keybindDisableAutoShoot] = function()
+        AutoShootEnabled = false
+        UpdateSetting("AutoShootEnabled", false)
+        Rayfield:Notify({Title = "Keybind", Content = lang.KeybindNotifyDisabled, Duration = 1})
+    end
+    Keybinds[keybindEnableAutoKnife] = function()
+        autoThrow = true
+        UpdateSetting("autoThrow", true)
+        Rayfield:Notify({Title = "Keybind", Content = lang.KeybindKnifeEnabled, Duration = 1})
+    end
+    Keybinds[keybindDisableAutoKnife] = function()
+        autoThrow = false
+        UpdateSetting("autoThrow", false)
+        Rayfield:Notify({Title = "Keybind", Content = lang.KeybindKnifeDisabled, Duration = 1})
+    end
+end
+setupKeybinds()
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+    local key = input.KeyCode.Name
+    if Keybinds[key] then Keybinds[key]() end
+end)
+
+local AimTab = Window:CreateTab(lang.AimAssistTab)
+AimTab:CreateLabel(lang.SettingsLabel)
+AimTab:CreateInput({
+    Name = lang.AimDistance,
+    PlaceholderText = "1 - inf",
+    CurrentValue = tostring(AimDistance),
+    Callback = function(Value)
+        local Num = tonumber(Value)
+        if Num then AimDistance = math.clamp(Num, 1, 100000) UpdateSetting("AimDistance", AimDistance) end
+    end
+})
+AimTab:CreateToggle({
+    Name = lang.AllowShooting,
+    CurrentValue = AllowShootingWhereYouDontLooking,
+    Callback = function(Value) AllowShootingWhereYouDontLooking = Value UpdateSetting("AllowShootingWhereYouDontLooking", Value) end
+})
+AimTab:CreateToggle({
+    Name = lang.AutoEquipGun,
+    CurrentValue = AutoEquipEnabled,
+    Callback = function(Value) AutoEquipEnabled = Value UpdateSetting("AutoEquipEnabled", Value) end
+})
+AimTab:CreateToggle({
+    Name = lang.AutoUnEquipGun,
+    CurrentValue = AutoUnEquipEnabled,
+    Callback = function(Value) AutoUnEquipEnabled = Value UpdateSetting("AutoUnEquipEnabled", Value) end
+})
+AimTab:CreateSlider({
+    Name = lang.MaxRaycast,
+    Range = {1, 50},
+    Increment = 1,
+    Suffix = "Attempts",
+    CurrentValue = MaxRaycastAttempts,
+    Callback = function(Value) MaxRaycastAttempts = Value UpdateSetting("MaxRaycastAttempts", Value) end
+})
+AimTab:CreateToggle({
+    Name = lang.NotifyShoot,
+    CurrentValue = NotifyWhereShooted,
+    Callback = function(Value) NotifyWhereShooted = Value UpdateSetting("NotifyWhereShooted", Value) end
+})
+AimTab:CreateToggle({
+    Name = lang.AutoShoot,
+    CurrentValue = AutoShootEnabled,
+    Callback = function(Value) AutoShootEnabled = Value UpdateSetting("AutoShootEnabled", Value) end
+})
+AimTab:CreateToggle({
+    Name = lang.Shoot2Die,
+    CurrentValue = Shoot2DieEnabled,
+    Callback = function(Value) Shoot2DieEnabled = Value UpdateSetting("Shoot2DieEnabled", Value) end
+})
+AimTab:CreateToggle({
+    Name = lang.Shoot2DieToClick2Die,
+    CurrentValue = Shoot2DieToClick2Die,
+    Callback = function(Value) Shoot2DieToClick2Die = Value UpdateSetting("Shoot2DieToClick2Die", Value) end
+})
+AimTab:CreateToggle({
+    Name = lang.AllowSliding,
+    CurrentValue = AllowSlidingKill,
+    Callback = function(Value)
+        AllowSlidingKill = Value
+        UpdateSetting("AllowSlidingKill", Value)
+        if not Value and SlidingConnection then SlidingConnection:Disconnect() SlidingConnection = nil end
+    end
+})
+
+AimTab:CreateLabel(lang.KeybindsLabel)
+AimTab:CreateInput({
+    Name = lang.EnableAutoShootKey,
+    PlaceholderText = "E",
+    CurrentValue = keybindEnableAutoShoot,
+    Callback = function(Value)
+        keybindEnableAutoShoot = Value
+        UpdateSetting("keybindEnableAutoShoot", Value)
+        setupKeybinds()
+    end
+})
+AimTab:CreateInput({
+    Name = lang.DisableAutoShootKey,
+    PlaceholderText = "R",
+    CurrentValue = keybindDisableAutoShoot,
+    Callback = function(Value)
+        keybindDisableAutoShoot = Value
+        UpdateSetting("keybindDisableAutoShoot", Value)
+        setupKeybinds()
+    end
+})
+AimTab:CreateInput({
+    Name = lang.EnableAutoKnifeKey,
+    PlaceholderText = "T",
+    CurrentValue = keybindEnableAutoKnife,
+    Callback = function(Value)
+        keybindEnableAutoKnife = Value
+        UpdateSetting("keybindEnableAutoKnife", Value)
+        setupKeybinds()
+    end
+})
+AimTab:CreateInput({
+    Name = lang.DisableAutoKnifeKey,
+    PlaceholderText = "Y",
+    CurrentValue = keybindDisableAutoKnife,
+    Callback = function(Value)
+        keybindDisableAutoKnife = Value
+        UpdateSetting("keybindDisableAutoKnife", Value)
+        setupKeybinds()
+    end
+})
+
+AimTab:CreateLabel(lang.KnifeThrowLabel)
+AimTab:CreateInput({
+    Name = lang.KnifeThrowSpeed,
+    PlaceholderText = "1 - 1000",
+    CurrentValue = tostring(KnifeThrowSpeed),
+    Callback = function(Value)
+        local Num = tonumber(Value)
+        if Num then KnifeThrowSpeed = math.clamp(Num, 1, 1000) UpdateSetting("KnifeThrowSpeed", KnifeThrowSpeed) end
+    end
+})
+AimTab:CreateSlider({
+    Name = lang.KnifeDetectionDist,
+    Range = {1, 1000},
+    Increment = 1,
+    Suffix = "studs",
+    CurrentValue = knifeDetectionDist,
+    Callback = function(Value) knifeDetectionDist = Value UpdateSetting("knifeDetectionDist", Value) end
+})
+AimTab:CreateToggle({
+    Name = lang.AutoEquipKnife,
+    CurrentValue = autoEquipKnife,
+    Callback = function(Value) autoEquipKnife = Value UpdateSetting("autoEquipKnife", Value) end
+})
+AimTab:CreateToggle({
+    Name = lang.AutoUnequipKnife,
+    CurrentValue = autoUnequipKnife,
+    Callback = function(Value) autoUnequipKnife = Value UpdateSetting("autoUnequipKnife", Value) end
+})
+AimTab:CreateToggle({
+    Name = lang.AutoKnifeThrow,
+    CurrentValue = autoThrow,
+    Callback = function(Value)
+        autoThrow = Value
+        UpdateSetting("autoThrow", Value)
+    end
+})
+
+local EspTab = Window:CreateTab(lang.EspTab)
+EspTab:CreateLabel(lang.EnemyEspLabel)
+EspTab:CreateToggle({
+    Name = lang.EnableEsp,
+    CurrentValue = EspEnabled,
+    Callback = function(Value)
+        EspEnabled = Value UpdateSetting("EspEnabled", Value)
+        if not Value then
+            for Player, Highlight in pairs(Highlights) do
+                if Highlight then pcall(function() Highlight:Destroy() end) end
+                Highlights[Player] = nil
+            end
+        end
+    end
+})
+EspTab:CreateLabel(lang.TeamMatesEspLabel)
+EspTab:CreateToggle({
+    Name = lang.EnableTeamMatesEsp,
+    CurrentValue = EspTeamMatesEnabled,
+    Callback = function(Value)
+        EspTeamMatesEnabled = Value UpdateSetting("EspTeamMatesEnabled", Value)
+        if not Value then
+            for Player, Highlight in pairs(TeamMatesHighlights) do
+                if Highlight then pcall(function() Highlight:Destroy() end) end
+                TeamMatesHighlights[Player] = nil
+            end
+        end
+    end
+})
+
+local function UpdateEnemyDropdown()
+    if not EnemyDropdown then return end
+    local enemyNames = GetEnemyNamesFromFrames()
+    local NewOptions = {}
+    for _, name in ipairs(enemyNames) do
+        table.insert(NewOptions, name)
+    end
+    table.sort(NewOptions)
+    local NeedsRefresh = false
+    if #NewOptions ~= #CurrentEnemyOptions then NeedsRefresh = true
+    else
+        for i, Name in ipairs(NewOptions) do
+            if CurrentEnemyOptions[i] ~= Name then NeedsRefresh = true break end
+        end
+    end
+    if NeedsRefresh then
+        CurrentEnemyOptions = NewOptions
+        EnemyDropdown:Refresh(NewOptions)
+    end
+end
+
+local KillTab = Window:CreateTab(lang.KillTab)
+KillTab:CreateLabel(lang.TargetingLabel)
+EnemyDropdown = KillTab:CreateDropdown({
+    Name = lang.SelectTargets,
+    Options = {},
+    CurrentOption = {},
+    MultiSelect = true,
+    Callback = function(Options) SelectedTargets = Options end
+})
+KillTab:CreateToggle({
+    Name = lang.SpamKillTarget,
+    CurrentValue = false,
+    Callback = function(Value)
+        KillSpamEnabled = Value
+        if Value then StartKillSpam() else StopAllKillSpams() end
+    end
+})
+KillTab:CreateButton({Name = lang.KillAllOnce, Callback = KillAllOnce})
+KillTab:CreateLabel(lang.RealKillingLabel)
+KillTab:CreateToggle({
+    Name = lang.KillSpamAll,
+    CurrentValue = false,
+    Callback = function(Value)
+        KillSpamAllEnabled = Value
+        if Value then StartKillSpamAll() else StopAllKillSpams() end
+    end
+})
+KillTab:CreateButton({Name = lang.KillAllWithGun, Callback = KillAllWithGunOnce})
+KillTab:CreateToggle({
+    Name = lang.KillSpamGunAll,
+    CurrentValue = false,
+    Callback = function(Value)
+        KillSpamWithGunAllEnabled = Value
+        if Value then StartKillSpamWithGunAll() else StopAllKillSpams() end
+    end
+})
+
+local InventoryTab = Window:CreateTab(lang.InventoryTab)
+InventoryTab:CreateLabel(lang.CloakLabel)
+InventoryTab:CreateSlider({
+    Name = lang.CloakAccel,
+    Range = {1, 80}, Increment = 1, Suffix = "", CurrentValue = CloakAccel,
+    Callback = function(Value) CloakAccel = Value UpdateSetting("CloakAccel", Value) end
+})
+InventoryTab:CreateSlider({
+    Name = lang.CloakSpeed,
+    Range = {1, 100}, Increment = 1, Suffix = "", CurrentValue = CloakSpeed,
+    Callback = function(Value) CloakSpeed = Value UpdateSetting("CloakSpeed", Value) end
+})
+InventoryTab:CreateButton({Name = lang.GiveCloak, Callback = GiveCloak})
+InventoryTab:CreateButton({Name = lang.RemoveCloak, Callback = RemoveCloakToolFunc})
+InventoryTab:CreateToggle({
+    Name = lang.AutoCloak,
+    CurrentValue = AutoGiveCloakEnabled,
+    Callback = function(Value) AutoGiveCloakEnabled = Value UpdateSetting("AutoGiveCloakEnabled", Value) end
+})
+InventoryTab:CreateLabel(lang.FakeLagLabel)
+InventoryTab:CreateLabel(lang.FakeLagDesc)
+InventoryTab:CreateButton({Name = lang.GiveFakeLag, Callback = GiveFakeLag})
+InventoryTab:CreateButton({Name = lang.RemoveFakeLag, Callback = RemoveFakeLagToolFunc})
+InventoryTab:CreateToggle({
+    Name = lang.AutoFakeLag,
+    CurrentValue = AutoGiveFakeLagEnabled,
+    Callback = function(Value) AutoGiveFakeLagEnabled = Value UpdateSetting("AutoGiveFakeLagEnabled", Value) end
+})
+
+local IdiomaTab = Window:CreateTab(lang.IdiomaTab)
+IdiomaTab:CreateDropdown({
+    Name = lang.LanguageTo,
+    Options = {"Spanish", "English", "German", "French", "Portuguese"},
+    CurrentOption = {Language},
+    MultiSelect = false,
+    Callback = function(Options)
+        Language = Options[1] or Language
+        UpdateSetting("Language", Language)
+    end
+})
+IdiomaTab:CreateButton({
+    Name = lang.SetIdiom,
+    Callback = function()
+        SaveAutoSave(SavedSettings)
+        LocalPlayer:Kick("\nRejoin to apply language change.")
+    end
+})
+
+local hideConnections = {}
+local function hideOpenButton()
+    local coreGui = game:GetService("CoreGui")
+    local function findRayfield()
+        for _, child in ipairs(coreGui:GetChildren()) do
+            if child:FindFirstChild("Rayfield") then return child.Rayfield end
+        end
+        return nil
+    end
+    local rayfield = findRayfield()
+    if not rayfield then
+        Rayfield:Notify({Title = "Error", Content = lang.RayfieldError, Duration = 3})
+        return
+    end
+    for _, conn in ipairs(hideConnections) do conn:Disconnect() end
+    hideConnections = {}
+    local function hidePrompt(prompt)
+        if not prompt or not prompt:FindFirstChild("Title") then return end
+        prompt.Title.Visible = false
+        prompt.BackgroundTransparency = 1
+        table.insert(hideConnections, prompt.Title:GetPropertyChangedSignal("Visible"):Connect(function()
+            if prompt.Title.Visible then prompt.Title.Visible = false end
+        end))
+        table.insert(hideConnections, prompt:GetPropertyChangedSignal("BackgroundTransparency"):Connect(function()
+            if prompt.BackgroundTransparency ~= 1 then prompt.BackgroundTransparency = 1 end
+        end))
+    end
+    local prompt = rayfield:FindFirstChild("Prompt")
+    if prompt then hidePrompt(prompt) end
+    table.insert(hideConnections, rayfield.ChildAdded:Connect(function(child)
+        if child.Name == "Prompt" then hidePrompt(child) end
+    end))
+end
+
+local function showOpenButton()
+    for _, conn in ipairs(hideConnections) do conn:Disconnect() end
+    hideConnections = {}
+    local coreGui = game:GetService("CoreGui")
+    local function findRayfield()
+        for _, child in ipairs(coreGui:GetChildren()) do
+            if child:FindFirstChild("Rayfield") then return child.Rayfield end
+        end
+        return nil
+    end
+    local rayfield = findRayfield()
+    if not rayfield then return end
+    local prompt = rayfield:FindFirstChild("Prompt")
+    if prompt then
+        prompt.BackgroundTransparency = 0
+        if prompt:FindFirstChild("Title") then
+            prompt.Title.Visible = true
+        end
+    end
+end
+
+local OpenButtonTab = Window:CreateTab(lang.OpenButtonTab)
+OpenButtonTab:CreateLabel(lang.HideOpenLabel)
+OpenButtonTab:CreateButton({Name = lang.HideBtn, Callback = hideOpenButton})
+OpenButtonTab:CreateButton({Name = lang.ShowBtn, Callback = showOpenButton})
+
+LocalPlayer.CharacterAdded:Connect(function()
+    if AutoGiveCloakEnabled then task.wait(0.5) GiveCloak() end
+    if AutoGiveFakeLagEnabled then task.wait(0.5) GiveFakeLag() end
+    CurrentGun = nil
+    CurrentKnife = nil
+end)
+
+RunService.Heartbeat:Connect(function()
+    if AutoShootEnabled then FastFireTarget(nil) end
+    if autoThrow then FastThrowKnife() end
+    UpdateHighlights()
+end)
+
+RunService.RenderStepped:Connect(function()
+    UpdateEnemyDropdown()
+end)
+
+UserInputService.InputBegan:Connect(function(Input, GameProcessed)
+    if GameProcessed then return end
+    local isClick = (Input.UserInputType == Enum.UserInputType.MouseButton1) or
+                    (IsTouchDevice and Input.UserInputType == Enum.UserInputType.Touch)
+    if not isClick then return end
+
+    if Shoot2DieEnabled and not AllowSlidingKill then
+        Shoot2Die()
+        return
+    end
+
+    if AllowSlidingKill then
+        SlidingSessionActive = true
+        SlidingKills = {}
+        if SlidingConnection then SlidingConnection:Disconnect() end
+        SlidingConnection = RunService.Heartbeat:Connect(function()
+            if not SlidingSessionActive then return end
+            local target = GetClosestEnemyByMouse()
+            if target and not SlidingKills[target.Name] then
+                SlidingKills[target.Name] = true
+                Shoot2Die(true)
+            end
+        end)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(Input)
+    local isRelease = (Input.UserInputType == Enum.UserInputType.MouseButton1) or
+                      (IsTouchDevice and Input.UserInputType == Enum.UserInputType.Touch)
+    if isRelease and AllowSlidingKill then
+        SlidingSessionActive = false
+        if SlidingConnection then SlidingConnection:Disconnect() SlidingConnection = nil end
+        local killedNames = {}
+        for name, _ in pairs(SlidingKills) do table.insert(killedNames, name) end
+        if #killedNames > 0 then
+            Rayfield:Notify({
+                Title = lang.SwipeNotifyTitle,
+                Content = string.format(lang.SwipeNotifyContent, table.concat(killedNames, ", ")),
+                Duration = 3,
+                Image = "target"
+            })
+        end
+    end
+end)
+
+if IsTouchDevice then
+    Rayfield:Notify({
+        Title = lang.TouchDeviceTitle,
+        Content = lang.TouchDeviceContent,
+        Duration = 5
+    })
+end
+-- Auto Farm its tuff - Sty!
+local AutoFarmTab = Window:CreateTab(lang.AutoFarmTab or "Auto Farm")
+AutoFarmTab:CreateLabel(lang.AutoFarmLabel or "Auto go to 2v2 or 3v3 (respects and not spams)")
+
+local AutoJoin2v2 = GetSetting("AutoJoin2v2", false)
+local AutoJoin3v3 = GetSetting("AutoJoin3v3", false)
+local EnableInstaKilling = GetSetting("EnableInstaKilling", false)
+
+local function IsInMatch()
+    return #GetEnemyNamesFromFrames() > 0
+end
+
+local function JoinGameWithRemote(mode)
+    if IsInMatch() then
+        return false
+    end
+
+local Matchmaking = cloneref(
+        game:GetService("ReplicatedStorage")
+            .Packages
+            .Networking["RE/Matchmaking/Matchmaking"]
+    )
+
+    if not Matchmaking then
+        return false
+    end
+
+    pcall(function()
+        Matchmaking:FireServer("play", {
+            mode = mode
+        })
+    end)
+
+    return true
+end
+
+task.spawn(function()
+    while true do
+        task.wait(5)
+        if not IsInMatch() then
+            if AutoJoin2v2 then JoinGameWithRemote("2v2") task.wait(1) end
+            if AutoJoin3v3 then JoinGameWithRemote("3v3") task.wait(1) end
+        end
+    end
+end)
+
+AutoFarmTab:CreateToggle({
+    Name = lang.AutoJoin2v2 or "Auto go to 2v2",
+    CurrentValue = AutoJoin2v2,
+    Callback = function(v) AutoJoin2v2 = v UpdateSetting("AutoJoin2v2", v) end
+})
+
+AutoFarmTab:CreateToggle({
+    Name = lang.AutoJoin3v3 or "Auto go to 3v3",
+    CurrentValue = AutoJoin3v3,
+    Callback = function(v) AutoJoin3v3 = v UpdateSetting("AutoJoin3v3", v) end
+})
+
+AutoFarmTab:CreateLabel(lang.AutoFarmScriptLabel or "Auto Farm Script")
+
+AutoFarmTab:CreateToggle({
+    Name = lang.EnableInstaKilling or "Enable InstaKilling",
+    CurrentValue = EnableInstaKilling,
+    Callback = function(v)
+        EnableInstaKilling = v
+        UpdateSetting("EnableInstaKilling", v)
+        if v and getgenv().JoinedB33terDerrx then
+            StartInstaKill()
+        elseif not v then
+            StopInstaKill()
+        end
+    end
+})
+
+local KnifeKillRemote = cloneref(
+    game:GetService("ReplicatedStorage")
+        .Packages
+        .Networking["RE/Combat/Knifekill"]
+)
+local InstaActive = false
+local InstaConnections = {}
+local InstaThreads = {}
+
+local function FireKill()
+    local enemies = GetEnemyNamesFromFrames()
+    if #enemies == 0 then return end
+    for _, name in ipairs(enemies) do
+        local plr = Players:FindFirstChild(name)
+        if plr and KnifeKillRemote then
+            pcall(function() KnifeKillRemote:FireServer(plr, plr.Character or plr) end)
+        end
+    end
+end
+
+local function StopInstaKill()
+    for _, c in ipairs(InstaConnections) do c:Disconnect() end
+    InstaConnections = {}
+    for _, t in ipairs(InstaThreads) do task.cancel(t) end
+    InstaThreads = {}
+    InstaActive = false
+end
+
+local function StartInstaKill()
+    if not KnifeKillRemote then return end
+    StopInstaKill()
+    InstaActive = true
+    local function b(e)
+        table.insert(InstaConnections, e:Connect(FireKill))
+    end
+    b(RunService.Heartbeat)
+    b(RunService.RenderStepped)
+    b(RunService.Stepped)
+    for _ = 1, 5 do
+        table.insert(InstaThreads, task.spawn(function() while InstaActive do FireKill() task.wait() end end))
+    end
+    for _ = 1, 3 do
+        table.insert(InstaThreads, task.spawn(function() while InstaActive do FireKill() RunService.Heartbeat:Wait() end end))
+    end
+end
+
+local queueTeleport = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+if queueTeleport then
+    queueTeleport([[
+        getgenv().JoinedB33terDerrx = true
+    ]])
+end
+
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if EnableInstaKilling and getgenv().JoinedB33terDerrx then
+            getgenv().JoinedB33terDerrx = false
+            StartInstaKill()
+            Rayfield:Notify({
+                Title = "InstaKilling",
+                Content = "Auto-activated after teleport!",
+                Duration = 3
+            })
+        end
+    end
+end)
+
+if EnableInstaKilling and getgenv().JoinedB33terDerrx then
+    StartInstaKill()
+end
